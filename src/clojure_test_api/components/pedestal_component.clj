@@ -1,12 +1,14 @@
 (ns clojure-test-api.components.pedestal-component
   (:require [cheshire.core :as json]
             [com.stuartsierra.component :as component]
+            [honey.sql :as sql]
             [io.pedestal.http :as http]
             [io.pedestal.http.body-params :as body-params]
             [io.pedestal.http.content-negotiation :as content-negotiation]
             [io.pedestal.http.route :as route]
             [io.pedestal.interceptor :as interceptor]
             [next.jdbc :as jdbc]
+            [next.jdbc.result-set :as rs]
             [schema.core :as s]))
 
 (defn response
@@ -52,6 +54,28 @@
                                     :list-id))
            response (if list'
                       (ok list')
+                      (not-found))]
+       (assoc context :response response)))})
+
+(def db-get-list
+  {:name :db-get-list
+   :enter
+   (fn [{:keys [dependencies] :as context}]
+     (let [{:keys [datasource]} dependencies
+           list-id (-> context
+                       :request
+                       :path-params
+                       :list-id
+                       (parse-uuid))
+           todo-list (jdbc/execute-one!
+                      (datasource)
+                      (-> {:select :*
+                           :from :todo
+                           :where [:= :id list-id]}
+                          (sql/format))
+                      {:builder-fn rs/as-kebab-maps})
+           response (if todo-list
+                      (ok todo-list)
                       (not-found))]
        (assoc context :response response)))})
 
@@ -107,6 +131,7 @@
      ["/info"                    :get info]
      ["/todo"                    :post   [(body-params/body-params) post-list]]
      ["/todo/:list-id"           :get    get-list]
+     ["/db/todo/:list-id"        :get    db-get-list]
      ["/todo/:list-id"           :post   echo :route-name :list-item-create]
      ["/todo/:list-id/:item-id"  :get    echo :route-name :list-item-view]
      ["/todo/:list-id/:item-id"  :put    echo :route-name :list-item-update]
